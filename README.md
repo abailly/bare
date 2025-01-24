@@ -54,6 +54,6 @@ or if you are one, but think that AI tools can replace a programmer or a tester,
 What do you think of this assessment experiment?
 
 - I welcome and will appreciate any feedback on the exercise
-- I will no partipate in discussions about AI capacity with people having not tried the exercise
+- I will not partipate in discussions about AI capacity with people having not tried the exercise
 
 Enjoy !
