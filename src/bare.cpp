@@ -36,6 +36,8 @@ void init_memory() {
         }
     }
     for(index = 0; index < 0x10000; memory[index++] = 0);
+    // Initialize bank register to 0
+    memory[BANK] = bank;
     for(index = 0; index < BINARY_SIZE; index++) {
         memory[index+origin] = binary[index];
     }
@@ -50,12 +52,15 @@ void ReadFromSpecialPort(uint16_t address) {
             if (key_pos < key_max) {
                 memory[address] = (uint8_t)key_buffer[key_pos++];
             } else if (!eof) {
-                fgets(key_buffer, MAX_BUFFER, stdin);
-                eof = feof(stdin);
-                if(!eof) {
+                if (fgets(key_buffer, MAX_BUFFER, stdin) != NULL) {
+                    eof = feof(stdin);
                     key_max = strlen(key_buffer);
                     key_pos = 0;
-                    memory[address] = (uint8_t)key_buffer[key_pos++];
+                    if (key_max > 0) {  // Make sure we have data
+                        memory[address] = (uint8_t)key_buffer[key_pos++];
+                    }
+                } else {
+                    eof = 1;
                 }
             }
             break;
@@ -101,13 +106,22 @@ uint8_t MemoryRead(uint16_t address) {
 }
 
 void MemoryWrite(uint16_t address, uint8_t value) {
+    uint8_t default_value = value;
+    
+    // Handle special ports first
+    if (address == CHAR_OUT || address == EXITCODE || address == BANK) {
+        default_value = WriteToSpecialPort(address, value);
+    }
+    
+    // Write to memory or bank
     if (address >= BANK_BASE && address < BANK_BASE+BANK_SIZE) {
         uint16_t index = address - BANK_BASE;
         uint8_t bank = memory[BANK];
-        banks[bank][index] = value;
+        banks[bank][index] = default_value;
+        // Don't write to main memory for banked addresses
+    } else {
+        memory[address] = default_value;
     }
-    uint8_t default_value = WriteToSpecialPort(address, value);
-    memory[address] = default_value;
 }
 
 int main(int argc, char *argv[]) {

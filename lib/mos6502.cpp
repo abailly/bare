@@ -979,8 +979,13 @@ void mos6502::RunEternally()
 
 void mos6502::Exec(Instr i)
 {
-    uint16_t src = (this->*i.addr)();
-    (this->*i.code)(src);
+    if (i.addr && i.code) {
+        uint16_t src = (this->*i.addr)();
+        (this->*i.code)(src);
+    } else {
+        // Handle invalid instruction
+        illegalOpcode = true;
+    }
 }
 
 uint16_t mos6502::GetPC()
@@ -1073,26 +1078,34 @@ void mos6502::Op_ADC(uint16_t src)
 {
     uint8_t m = Read(src);
     unsigned int tmp = m + A + (IF_CARRY() ? 1 : 0);
-    SET_ZERO(!(tmp & 0xFF));
+    
     if (IF_DECIMAL())
     {
-        if (((A & 0xF) + (m & 0xF) + (IF_CARRY() ? 1 : 0)) > 9) tmp += 6;
-        SET_NEGATIVE(tmp & 0x80);
+        // BCD arithmetic for decimal mode
+        int bcd_a = (A & 0x0F) + (m & 0x0F) + (IF_CARRY() ? 1 : 0);
+        if (bcd_a > 9) bcd_a += 6;
+        bcd_a = (bcd_a & 0x0F) + (A & 0xF0) + (m & 0xF0);
+        
+        // Set the overflow flag based on the binary result
         SET_OVERFLOW(!((A ^ m) & 0x80) && ((A ^ tmp) & 0x80));
-        if (tmp > 0x99)
-        {
-            tmp += 96;
-        }
-        SET_CARRY(tmp > 0x99);
+        
+        if (bcd_a > 0x9F) bcd_a += 0x60;
+        SET_CARRY(bcd_a > 0xFF);
+        
+        A = bcd_a & 0xFF;
+        SET_NEGATIVE(A & 0x80);
+        SET_ZERO(A == 0);
     }
     else
     {
+        // Binary arithmetic
         SET_NEGATIVE(tmp & 0x80);
         SET_OVERFLOW(!((A ^ m) & 0x80) && ((A ^ tmp) & 0x80));
         SET_CARRY(tmp > 0xFF);
+        A = tmp & 0xFF;
+        SET_ZERO(!A);
     }
-
-    A = tmp & 0xFF;
+    
     return;
 }
 
@@ -1205,7 +1218,9 @@ void mos6502::Op_BRK(uint16_t src)
     StackPush(pc & 0xFF);
     StackPush(status | CONSTANT | BREAK);
     SET_INTERRUPT(1);
-    pc = (Read(irqVectorH) << 8) + Read(irqVectorL);
+    uint8_t pcl = Read(irqVectorL);
+    uint8_t pch = Read(irqVectorH);
+    pc = (pch << 8) + pcl;
     return;
 }
 
@@ -1522,20 +1537,34 @@ void mos6502::Op_SBC(uint16_t src)
 {
     uint8_t m = Read(src);
     unsigned int tmp = A - m - (IF_CARRY() ? 0 : 1);
-    SET_NEGATIVE(tmp & 0x80);
-    SET_ZERO(!(tmp & 0xFF));
-    SET_OVERFLOW(((A ^ tmp) & 0x80) && ((A ^ m) & 0x80));
-
+    
     if (IF_DECIMAL())
     {
-        if ( ((A & 0x0F) - (IF_CARRY() ? 0 : 1)) < (m & 0x0F)) tmp -= 6;
-        if (tmp > 0x99)
-        {
-            tmp -= 0x60;
-        }
+        // BCD arithmetic for decimal mode
+        int bcd_a = (A & 0x0F) - (m & 0x0F) - (IF_CARRY() ? 0 : 1);
+        if (bcd_a < 0) bcd_a = ((bcd_a - 0x06) & 0x0F) - 0x10;
+        bcd_a = bcd_a + (A & 0xF0) - (m & 0xF0);
+        
+        // Set the overflow flag based on the binary result
+        SET_OVERFLOW(((A ^ tmp) & 0x80) && ((A ^ m) & 0x80));
+        
+        if (bcd_a < 0) bcd_a -= 0x60;
+        SET_CARRY(tmp < 0x100);
+        
+        A = bcd_a & 0xFF;
+        SET_NEGATIVE(A & 0x80);
+        SET_ZERO(A == 0);
     }
-    SET_CARRY(tmp < 0x100);
-    A = (tmp & 0xFF);
+    else
+    {
+        // Binary arithmetic
+        SET_NEGATIVE(tmp & 0x80);
+        SET_ZERO(!(tmp & 0xFF));
+        SET_OVERFLOW(((A ^ tmp) & 0x80) && ((A ^ m) & 0x80));
+        SET_CARRY(tmp < 0x100);
+        A = (tmp & 0xFF);
+    }
+    
     return;
 }
 
